@@ -9,9 +9,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useUserProfile } from '../../queries/UserQueries'
 import { apiClient } from '../../utils/ApiClient'
 import { GetUserProfile } from '../../utils/Fetcher'
+import { saveTokens } from '../../utils/TokenStorage'
 
 const AuthenticationLoading = () => {
-  const { data: userProfile, refetch: refetchUserProfile } = useUserProfile()
+  const { refetch: refetchUserProfile } = useUserProfile()
   const Navigate = useNavigate()
   const hasCalledHandleOAuth2 = useRef(false)
   const [message, setMessage] = useState('Authenticating')
@@ -26,10 +27,11 @@ const AuthenticationLoading = () => {
       setMessage('Unknown Authentication Provider')
       setSubMessage('Please contact support')
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider])
   const getUserProfileAndNavigateToHome = () => {
     GetUserProfile().then(data => {
-      data.json().then(data => {
+      data.json().then(() => {
         refetchUserProfile().then(() => {
           // check if redirect url is set in cookie:
           const redirectUrl = Cookies.get('ca_redirect')
@@ -76,9 +78,17 @@ const AuthenticationLoading = () => {
         }),
       }).then(response => {
         if (response.status === 200) {
-          return response.json().then(data => {
-            localStorage.setItem('token', data.token)
-            localStorage.setItem('token_expiry', data.expire)
+          return response.json().then(async data => {
+            // Persist the full token set, not just the access token. On native
+            // the refresh token lives in Capacitor Preferences (not a cookie),
+            // so dropping it here left OIDC logins unable to refresh — the app
+            // force-logged-out on the first refresh attempt.
+            await saveTokens({
+              accessToken: data.token || data.access_token,
+              accessTokenExpiry: data.expire || data.access_token_expiry,
+              refreshToken: data.refresh_token,
+              refreshTokenExpiry: data.refresh_token_expiry,
+            })
 
             const redirectUrl = Cookies.get('ca_redirect')
             if (redirectUrl) {
